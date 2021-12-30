@@ -1,0 +1,603 @@
+<!--
+
+####
+# 
+# Name: sharepointpoint CallCenter Dashboard Javascript
+# Author: Joseph Gullo
+# Last Modification: 2021.12.28
+# Description: This generates a call center dashboard, in
+#   sharepointpoint, displaying info pulled from the asterisk server
+# References: 
+#
+####
+
+-->
+
+<!-- Prod: https://ORGPREFIX-sharepoint-01/membership/Lists/callcenter%20Callback%20and%20After%20Hours/Unassigned.aspx?PageView=sharepointd&InitialTabId=Ribbon.WebPartPage&VisibilityContext=WSSWebPartPage -->
+<!-- Dev: https://ORGPREFIX-sharepoint-01/it/SitePages/Queue%20Page%202.aspx -->
+<style>
+	#QueueStatusGrid {
+		width: 100%;
+		text-align: center;
+	}
+	#DebugQueueStatusGrid {
+		width: 100%;
+		text-align: center;
+	}
+</style>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+<div style="text-align:center;" id="QueueStatusGrid"></div>
+<div style="text-align:center;" id="DebugQueueStatusGrid"></div>
+<script>
+	function loadQueueStatusGridData() {
+		// Credentials for AMI
+		var payload = { action : 'login' , username : 'test', secret : 'secret' }
+		// Our primary ajax action function
+		$.ajax({
+			// First request is login, which will get a cookie we will use later
+			type: "POST",
+			url: 'https://ORGPREFIX-asteriskweb-01.ad.DOMAIN.org/ami/mxml',
+			data: payload ,
+			xhrFields: {
+				withCredentials: true
+			},
+			crossDomain: true,
+			async: true,
+			success: function (r, status, xhr ){
+				// This is an array of objects consisting of an extension/idle time pair
+				//  for the idle counter; it has to be here to hold data between ajax calls
+				var idleTimes=[];
+				// This is an array of objects consisting of an extension/paused time pair
+				//  for the paused counter; it has to be here to hold data between ajax calls
+				var pausedTimes=[];
+				// Second request is "queue show callcenter_english"
+				var params = {'action':'Command','command':'queue show callcenter_english'};
+				$.ajax({
+					type: "GET",
+					url: 'https://ORGPREFIX-asteriskweb-01.ad.DOMAIN.org/ami/mxml',
+					dataType: 'html',
+					data: params,
+					xhrFields: {
+						withCredentials: true
+					},
+					crossDomain: true,
+					async: true,
+					success: function ( s, status, xhr ){
+						var html = $.parseHTML(s);
+						//var OutputText="";
+						function iterateAttributesQueueShow(elem){
+							// Sample output of the AMI Result:
+							// <response type='object' id='unknown'><generic response='Success' message='Command output follows' output='callcenter_steward has 0 calls (max unlimited) in &apos;rrmemory&apos; strategy (11s holdtime, 18s talktime), W:0, C:1, A:0, SL:0.0%, SL2:0.0% within 0s' output-2='Members:' output-3='PJSIP/agent5ext (ringinuse disabled) (dynamic) (Not in use) has taken no calls yet' output-4='PJSIP/agent6ext (ringinuse disabled) (dynamic) (Not in use) has taken 1 calls (last was 3243 secs ago)' output-5='PJSIP/agent7ext (ringinuse disabled) (dynamic) (Not in use) has taken no calls yet' output-6='No Callers' output-7='' output-8='callcenter_event has 0 calls (max unlimited) in &apos;rrmemory&apos; strategy (0s holdtime, 0s talktime), W:0, C:0, A:0, SL:0.0%, SL2:0.0% within 0s' output-9='Members:' output-10='PJSIP/agent5ext (ringinuse disabled) (dynamic) (Not in use) has taken no calls yet' output-11='PJSIP/agent6ext (ringinuse disabled) (dynamic) (Not in use) has taken no calls yet' output-12='PJSIP/agent7ext (ringinuse disabled) (dynamic) (Not in use) has taken no calls yet' output-13='No Callers' output-14='' output-15='callcenter_english has 0 calls (max unlimited) in &apos;rrmemory&apos; strategy (5s holdtime, 154s talktime), W:0, C:8, A:0, SL:0.0%, SL2:0.0% within 0s' output-16='Members:' output-17='PJSIP/agent5ext (ringinuse disabled) (dynamic) (Not in use) has taken no calls yet' output-18='PJSIP/agent6ext (ringinuse disabled) (dynamic) (Not in use) has taken 7 calls (last was 216 secs ago)' output-19='PJSIP/agent7ext (ringinuse disabled) (dynamic) (Not in use) has taken 1 calls (last was 38 secs ago)' output-20='No Callers' output-21='' output-22='callcenter_spanish has 0 calls (max unlimited) in &apos;rrmemory&apos; strategy (0s holdtime, 0s talktime), W:0, C:0, A:0, SL:0.0%, SL2:0.0% within 0s' output-23='Members:' output-24='PJSIP/agent5ext (ringinuse disabled) (dynamic) (Not in use) has taken no calls yet' output-25='PJSIP/agent6ext (ringinuse disabled) (dynamic) (Not in use) has taken no calls yet' output-26='PJSIP/agent7ext (ringinuse disabled) (dynamic) (Not in use) has taken no calls yet' output-27='No Callers' output-28='' output-29='' /></response>
+							$(elem).children().each(function(i,e){
+								if ( e.nodeName === "GENERIC" ) {
+									// Iterate through attributes
+//console.log(e);
+									for (var i = 0; i < e.attributes.length; i++) {
+										var attrib = e.attributes[i];
+										// Does the attribute have an agent extension, indicating it's what we need
+										// THERE ARE 2 VERSIONS OF THIS, THE FIRST WORKS IN IE, THE OTHER DOESN'T
+										if ( attrib.value.indexOf("PJSIP") >= 0 ) {
+										//if ( attrib.value.includes( "PJSIP" ) ) {
+											// Create an array of words in the attribute
+											var words = attrib.value.split(" ");
+											// Capture the agent's extension
+											var userExtNum = words[0].replace("PJSIP/", "");
+											if ( words[9] === "(Not" ) {
+												// Paused Condition Format:
+												console.log("Agent Status: Paused");
+												// PJSIP/agent6ext (ringinuse disabled) (dynamic) (paused:Break@09:35. was 1152 secs ago) (Not in use) has taken 11 calls (last was 1152 secs ago)
+												var idleMinutes = parseInt(words[18] / 60);
+												var idleSeconds = ("0" + words[18] % 60).slice(-2);
+												var idleTime = idleMinutes + ":" + idleSeconds;
+												idleTimes.push( { userExt: userExtNum, idleTime: idleTime } );
+												var pausedMinutes = parseInt(words[6] / 60);
+												var pausedSeconds = ("0" + words[6] % 60).slice(-2);
+												var pausedTime = pausedMinutes + ":" + pausedSeconds;
+												pausedTimes.push( { userExt: userExtNum, pausedTime: pausedTime } );
+console.log(pausedTime);
+console.log(userExtNum);
+												//console.log(words[0] + ": Last call was " + idleTime + " ago.");
+											} else if ( words[4] === "(in" ) {
+												// In Call Condition Format:
+												console.log("Agent Status: In Call");
+												// PJSIP/agent7ext (ringinuse disabled) (dynamic) (in call) (In use) has taken 6 calls (last was 826 secs ago)
+												//console.log( words[0] + ": In a call" );	
+											} else if ( words[4] === "(In" ) {
+												// In Use Condition Format:
+												console.log("Agent Status: In Use");
+												// PJSIP/agent2ext (ringinuse disabled) (dynamic) (In use) has taken 5 calls (last was 312 secs ago) 
+												//console.log( words[0] + ": In use" );	
+											} else if ( words[9] === "no" ) {
+												// Hasn't Taken A Call Format:
+												console.log("Agent Status: Hasn't Taken an Call");
+												// PJSIP/agent4ext (ringinuse disabled) (dynamic) (Not in use) has taken no calls yet
+												//console.log( words[0] + ": Hasn't taken a call yet." );	
+											} else if ( words[4] === "(Ringing)" ) {
+												// Ringing Format:
+												console.log("Agent Status: Ringing");
+												// PJSIP/agent4ext (ringinuse disabled) (dynamic) (Ringing) has taken 2 calls (last was 321 secs ago)
+												var idleMinutes = parseInt(words[11] / 60);
+												var idleSeconds = ("0" + words[11] % 60).slice(-2);
+												var idleTime = idleMinutes + ":" + idleSeconds;
+												idleTimes.push( { userExt: userExtNum, idleTime: idleTime } );
+												//console.log( words[0] + ": Last call was " + idleTime + " ago.");
+											} else if ( words[4] === "(Unavailable)" ) {
+												// Unavailable Format:
+												console.log("Agent Status: Unavailable");
+												// PJSIP/agent8ext (ringinuse disabled) (dynamic) (Unavailable) has taken 13 calls (last was 90 secs ago)
+												var idleMinutes = parseInt(words[11] / 60);
+												var idleSeconds = ("0" + words[11] % 60).slice(-2);
+												var idleTime = idleMinutes + ":" + idleSeconds;
+												idleTimes.push( { userExt: userExtNum, idleTime: idleTime } );
+												//console.log( words[0] + ": Last call was " + idleTime + " ago.");
+												//console.log( attrib.value );									
+											} else if ( words[9] === "(Unavailable)" ) {
+												// Unavailable #2 Format:
+												console.log("Agent Status: Unavailable #2");
+												// PJSIP/agent8ext (ringinuse disabled) (dynamic) (paused:@03:37. was 2456 secs ago) (Unavailable) has taken 30 calls (last was 2456 secs ago)
+												var idleMinutes = parseInt(words[16] / 60);
+												var idleSeconds = ("0" + words[16] % 60).slice(-2);
+												var idleTime = idleMinutes + ":" + idleSeconds;
+												idleTimes.push( { userExt: userExtNum, idleTime: idleTime } );
+												var pausedMinutes = parseInt(words[6] / 60);
+												var pausedSeconds = ("0" + words[6] % 60).slice(-2);
+												var pausedTime = pausedMinutes + ":" + pausedSeconds;
+												pausedTimes.push( { userExt: userExtNum, pausedTime: pausedTime } );
+console.log(pausedTime);
+console.log(userExtNum);
+												//console.log( words[0] + ": Last call was " + idleTime + " ago.");
+												//console.log( attrib.value );									
+											} else if ( words[4] === "(Not" ) {
+												// Available Format:
+												console.log("Agent Status: Available");
+												// PJSIP/agent5ext (ringinuse disabled) (dynamic) (Not in use) has taken 13 calls (last was 1364 secs ago)
+												var idleMinutes = parseInt(words[13] / 60);
+												var idleSeconds = ("0" + words[13] % 60).slice(-2);
+												var idleTime = idleMinutes + ":" + idleSeconds;
+												idleTimes.push( { userExt: userExtNum, idleTime: idleTime } );
+												//console.log( words[0] + ": Last call was " + idleTime + " ago." );
+												//console.log( attrib.value );												
+											} else if ( words[1].match(/^PJSIP\/att-........$/) ) {
+												// Do Nothing
+												console.log("Agent Status: ATT Number");
+											} else {
+												console.log("Agent Status: Else");
+												var idleMinutes = parseInt(words[13] / 60);
+												var idleSeconds = ("0" + words[13] % 60).slice(-2);
+												var idleTime = idleMinutes + ":" + idleSeconds;
+												idleTimes.push( { userExt: userExtNum, idleTime: idleTime } );
+												//console.log( words[0] + ": Last call was " + idleTime + " ago." );
+												//console.log( attrib.value );
+											}
+										}
+									}
+								}
+								iterateAttributesQueueShow(e);
+							});
+						};
+						iterateAttributesQueueShow(s);
+					},
+					error: function ( s, status, xhr ){
+						// Debug case for when the Queue Show call fails
+						//var xml_serializer = new XMLSerializer();
+						//$('#DebugQueueStatusGrid').html(s.responseText);
+						console.log( "Queue Show Call Failed." );
+					}
+				});		
+				
+				// Third request is "QueueStatus" AMI action, which presents the info
+				var params = {'action':'QueueStatus'};
+				$.ajax({
+					type: "GET",
+					url: 'https://ORGPREFIX-asteriskweb-01.ad.DOMAIN.org/ami/mxml',
+					dataType: 'html',
+					data: params,
+					xhrFields: {
+						withCredentials: true
+					},
+					crossDomain: true,
+					async: true,
+					success: function ( s, status, xhr ){
+						// Purge all rows from the existing div
+						$("#QueueStatusGrid").find("tr:gt(0)").remove();	
+						var html = $.parseHTML(s);
+						
+						// This is an array of objects consisting of an extension/callerID pair
+						//  for the callerID status; it has to be here to hold data between ajax calls
+						var callerIDs=[];
+							
+						// Placeholder for longest call in a queue
+						var longestCallInQueue;
+						// This is a recursive function which goes through HTML elements and pulls out the actual ones we need.  
+						//  It takes 2 arguments, the actual html node and all sub nodes, then a filter for specific queue names to facilitate displaying them in order
+						// Below are sample elements:
+						//  Queue Element with all attributes
+						//   <generic event="QueueParams" queue="callcenter_spanish" max="0" strategy="rrmemory" calls="0" holdtime="0" talktime="0" completed="0" abandoned="0" servicelevel="0" servicelevelperf="0.0" weight="0"></generic>
+						//  Member Element (so an agent) with all attributes
+						//   <generic event="QueueMember" queue="callcenter_spanish" name="PJSIP/6006" location="PJSIP/6006" stateinterface="PJSIP/6006" membership="dynamic" penalty="0" callstaken="0" lastcall="0" incall="0" status="5" paused="0" pausedreason=""></generic>
+						//  Entry Element which represents an actual call
+						//   <generic event="QueueEntry" queue="callcenter_english" position="1" channel="PJSIP/att-00000153" uniqueid="1597439015.2300" calleridnum="7149260336" calleridname="JOSEPH GULLO" connectedlinenum="5501" connectedlinename="Test User" wait="249" priority="0"></generic>
+						function traverse(elem, queueName){
+							$(elem).children().each(function(i,e){
+//console.log(e);
+//console.log(e.attributes);
+//console.log(e.nodeName);
+								// The HTML element we need is "GENERIC" so pull it
+								if ( e.nodeName === "GENERIC" ) {
+									// There are header and footer elements, so filter them out by pulling ones that have the attribute "event"
+									if ( e.hasAttribute("event") ) {
+										// Filter the output by queue, passed in the traverse function call
+										if ( $(e).attr("queue") === queueName ) {
+											
+											// Case to get elements of the actual queue
+											if ( $(e).attr("event") === "QueueEntry" ) {
+console.log(e);
+console.log(e.attributes);
+console.log(e.nodeName);
+											}
+											
+											// Case to get elements of the actual queue
+											if ( $(e).attr("event") === "QueueParams" ) {
+												// Reset the longest call counter for this queue
+												longestCallInQueue = 0;
+												// This counter lets us know how many columns the header has, so the agents table can span the correct number of columns
+												var colspanCount=0;
+												// Purge the previous table for this queue
+												if ( $("#" + $(e).attr("queue") + "Queue").length ) {
+													$("#" + $(e).attr("queue") + "Queue").remove();
+												}
+												// Define the queue Summary table and format it, then append it to the document's div
+												var queueStatusTable = $("<table style=\"margin:auto;margin-top:5px;margin-bottom:5px;min-width:30%;\" id=\"" + $(e).attr("queue") + "Queue\" border=0/>");
+												$("#QueueStatusGrid").append(queueStatusTable);	
+												
+												queueStatusTable.append("<tr id=\"" + $(e).attr("queue") + "HorizQueueHeaders\"/>");
+												$("#" + $(e).attr("queue") + "HorizQueueHeaders").empty();
+												
+												var queueStatusTableRow = $("<tr/>");
+														
+												// Blank Column for spacing when the number of agents gets too wide
+												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th style=\"min-width:0px;\"></th>");
+												colspanCount++;
+												queueStatusTableRow.append("<td/>");
+														
+												// Queue Name, with If/Else logic to make the names more readable and a catch-all to just put the ame given in
+												if ( $(e).attr("queue") === "callcenter_english" ) {
+													$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th rowspan=2 style=\"width:100px;fS5-weight:bold; fS5-size:17px;valign:bottom;\">English<br />Queue</th>");
+												} else if ( $(e).attr("queue") === "callcenter_spanish" ) {
+													$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th rowspan=2 style=\"width:100px;fS5-weight:bold; fS5-size:17px;valign:bottom;\">Spanish<br />Queue</th>");
+												} else if ( $(e).attr("queue") === "callcenter_steward" ) {
+													$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th rowspan=2 style=\"width:100px;fS5-weight:bold; fS5-size:17px;valign:bottom;\">Steward<br />Queue</th>");
+												} else if ( $(e).attr("queue") === "callcenter_event" ) {
+													$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th rowspan=2 style=\"width:100px;fS5-weight:bold; fS5-size:17px;valign:bottom;\">Event<br />Queue</th>");
+												} else {
+													$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th rowspan=2 style=\"width:100px;fS5-weight:bold; fS5-size:17px;valign:bottom;\">" + $(e).attr("queue") + "</th>");
+												}
+												colspanCount++;
+													
+//												// Max
+//												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th>Max</th>");
+//												colspanCount++;
+//												queueStatusTableRow.append("<td>" + $(e).attr("max") + "</td>");
+													
+//												// Strategy
+//												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th>Strategy</th>");
+//												colspanCount++;
+//												queueStatusTableRow.append("<td>" + $(e).attr("strategy") + "</td>");
+													
+												// Calls
+												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th style=\"width:40px;\">Calls</th>");
+												colspanCount++;
+												queueStatusTableRow.append("<td>" + $(e).attr("calls") + "</td>");
+													
+//												// Hold Time
+//												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th>Hold Time</th>");
+//												colspanCount++;
+//												queueStatusTableRow.append("<td>" + $(e).attr("holdtime") + "</td>");
+													
+//												// Talk Time
+//												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th>Talk Time</th>");
+//												colspanCount++;
+//												queueStatusTableRow.append("<td>" + $(e).attr("talktime") + "</td>");
+													
+												// Completed
+												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th style=\"width:90px;\">Completed</th>");
+												colspanCount++;
+												queueStatusTableRow.append("<td>" + $(e).attr("completed") + "</td>");
+													
+												// Abandoned
+												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th style=\"width:94px;\">Abandoned</th>");
+												colspanCount++;
+												queueStatusTableRow.append("<td>" + $(e).attr("abandoned") + "</td>");
+													
+//												// Service Level
+//												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th>Service Level</th>");
+//												colspanCount++;
+//												queueStatusTableRow.append("<td>" + $(e).attr("servicelevel") + "</td>");
+													
+//												// Service Level Performance
+//												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th>Performance</th>");
+//												colspanCount++;
+//												queueStatusTableRow.append("<td>" + $(e).attr("servicelevelperf") + "</td>");
+													
+//												// Weight
+//												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th>Weight</th>");
+//												colspanCount++;
+//												queueStatusTableRow.append("<td>" + $(e).attr("weight") + "</td>");
+
+												// Calls Offered, which is a computed aggregation of "calls", "completed", and "abandoned"
+												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th style=\"width:60px;\">Calls<br />Offered</th>");
+												colspanCount++;
+												var callsOffered = parseInt($(e).attr("calls")) + parseInt($(e).attr("completed")) + parseInt($(e).attr("abandoned"));
+												queueStatusTableRow.append("<td>" + callsOffered + "</td>");
+
+												// Longest Wait Time, this is actually defined in a different loop where we iterate through calls, so we're making a default/placeholder div to populate later
+												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th style=\"width:85px;\">Longest<br />Wait Time</th>");
+												colspanCount++;
+												queueStatusTableRow.append("<td id=\"" + $(e).attr("queue") + "LongestWait\">No Calls</td>");
+														
+												// Blank Column
+												$("#" + $(e).attr("queue") + "HorizQueueHeaders").append("<th style=\"min-width:0px;\"></th>");
+												colspanCount++;
+												queueStatusTableRow.append("<td/>");
+
+												// Append the queue info row to the table
+												queueStatusTable.append(queueStatusTableRow);
+														
+												// Row for members sub-table
+												queueStatusTable.append("<tr><td id=\"" + $(e).attr("queue") + "MembersTable\" colspan=" + colspanCount + "/></tr>");
+												
+												// Build the placeholder table for queue Members
+												var queueStatusMembersTable = $("<table style=\"margin:0px auto;\" id=\"" + $(e).attr("queue") + "HorizMember\" border=1/>");
+												$("#" + $(e).attr("queue") + "MembersTable").append(queueStatusMembersTable);
+												queueStatusMembersTable.append("<tr id=\"" + $(e).attr("queue") + "MembersTableRow\"/>");
+												$("#" + $(e).attr("queue") + "MembersTableRow").append("<td style=\"padding-left:10px;padding-right:10px;\"><p style=\"fS5-weight:bold;margin:5px;text-align:right;\">Name:<br />Status:<br />Pause Reason:<br />Idle Time:<br />Paused Time:</p></td>");
+											}
+											
+											// Case to get elements of the agents
+											if ( $(e).attr("event") === "QueueMember" ) {
+												// Hide extension mgrext, which is Manager, who should NOT show on the display board
+												if ( $(e).attr("name") !== "PJSIP/mgrext" ) {
+													// We need a uniqueID to target, but the / in the PJSIP/ prefix messesit up, so trim it out
+													var uniqueid = $(e).attr("queue") + $(e).attr("name").replace("PJSIP/", "");
+													var queueStatusTableRowCell = $("<td id=\"" + uniqueid + "\" style=\"padding-left:10px;padding-right:10px;\"/>");
+													var queueStatusTableRowCellParagraph = $("<p style=\"margin:5px;\"/>");
+															
+													// Name, here we filter out the prefix "PJSIP/"
+													if ( $(e).attr("name").replace("PJSIP/", "") === "agent1ext" ) {
+														queueStatusTableRowCellParagraph.append("agent1/agent1ext");
+													} else if ( $(e).attr("name").replace("PJSIP/", "") === "agent2ext" ) {
+														queueStatusTableRowCellParagraph.append("agent2/agent2ext");
+													} else if ( $(e).attr("name").replace("PJSIP/", "") === "agent3ext" ) {
+														queueStatusTableRowCellParagraph.append("agent3/agent3ext");
+													} else if ( $(e).attr("name").replace("PJSIP/", "") === "agent4ext" ) {
+														queueStatusTableRowCellParagraph.append("agent4/agent4ext");
+													} else if ( $(e).attr("name").replace("PJSIP/", "") === "agent5ext" ) {
+														queueStatusTableRowCellParagraph.append("agent5/agent5ext");
+													} else if ( $(e).attr("name").replace("PJSIP/", "") === "agent6ext" ) {
+														queueStatusTableRowCellParagraph.append("agent6/agent6ext");
+													} else if ( $(e).attr("name").replace("PJSIP/", "") === "agent7ext" ) {
+														queueStatusTableRowCellParagraph.append("agent7/agent7ext");
+													} else if ( $(e).attr("name").replace("PJSIP/", "") === "agent8ext" ) {
+														queueStatusTableRowCellParagraph.append("agent8/agent8ext");
+//													} else if ( $(e).attr("name").replace("PJSIP/", "") === "" ) {
+//														queueStatusTableRowCellParagraph.append("");
+													} else {
+														queueStatusTableRowCellParagraph.append( $(e).attr("name").replace("PJSIP/", "") );
+													}
+																																	
+//													// Queue Name
+//													queueStatusTableRowCellParagraph.append("<br />" + $(e).attr("queue"));
+															
+//													// Location
+//													queueStatusTableRowCellParagraph.append("<br />" + $(e).attr("location"));
+															
+//													// StateInterface
+//													queueStatusTableRowCellParagraph.append("<br />" + $(e).attr("stateinterface"));
+															
+//													// Membership
+//													queueStatusTableRowCellParagraph.append("<br />" + $(e).attr("membership"));
+															
+//													// Penalty
+//													queueStatusTableRowCellParagraph.append("<br />" + $(e).attr("penalty"));
+															
+//													// Calls Taken
+//													queueStatusTableRowCellParagraph.append("<br />" + $(e).attr("callstaken"));
+															
+//													// Last Call
+//													queueStatusTableRowCellParagraph.append("<br />" + $(e).attr("lastcall"));
+															
+//													// In Call, filtered to translate numerical codes to readable statuses
+//													if ( $(e).attr("incall") === "1" ) {
+//														queueStatusTableRowCellParagraph.append("<br />Yes");
+//													} else {
+//														queueStatusTableRowCellParagraph.append("<br />No");
+//													}
+																												
+													// Status, filtered to translate numerical codes to readable statuses
+													//queueStatusTableRowCellParagraph.append("<br />" + $(e).attr("status"));
+													if ( $(e).attr("incall") === "1" ) {
+														queueStatusTableRowCellParagraph.append("<br />In a call");
+													} else {
+														// Status 1 = Not In Use
+														if ( $(e).attr("status") === "1" ) {
+															if ( $(e).attr("paused") === "1" ) {
+																queueStatusTableRowCellParagraph.append("<br />Paused");
+															} else {
+																queueStatusTableRowCellParagraph.append("<br />Available");
+															}
+														// Status 2 = In Use
+														} else if ( $(e).attr("status") === "2" ) {
+															queueStatusTableRowCellParagraph.append("<br />In Use");
+														// Status 3 = Busy
+														} else if ( $(e).attr("status") === "3" ) {
+															queueStatusTableRowCellParagraph.append("<br />Busy");
+														// Status 4 = Invalid
+														} else if ( $(e).attr("status") === "4" ) {
+															queueStatusTableRowCellParagraph.append("<br />INVALID");
+														// Status 5 = Unavailable
+														} else if ( $(e).attr("status") === "5" ) {
+															queueStatusTableRowCellParagraph.append("<br />Unavailable");
+														// Status 6 = Ringing
+														} else if ( $(e).attr("status") === "6" ) {
+															queueStatusTableRowCellParagraph.append("<br />Ringing");
+														// Status 7 = Ringing/In Use
+														} else if ( $(e).attr("status") === "7" ) {
+															queueStatusTableRowCellParagraph.append("<br />In Use/Ringing");
+														// Status 8 = On Hold
+														} else if ( $(e).attr("status") === "8" ) {
+															queueStatusTableRowCellParagraph.append("<br />On Hold");
+														} else {
+															queueStatusTableRowCellParagraph.append("<br />Unknown");
+														}
+													}
+														
+															
+//													// Paused, filtered to translate numerical codes to readable statuses
+//													if ( $(e).attr("paused") === "1" ) {
+//														queueStatusTableRowCellParagraph.append("<br />Yes");
+//													} else {
+//														queueStatusTableRowCellParagraph.append("<br />No");
+//													}
+															
+													// Paused Reason with some logic to add "Not Given" if none exists, and "N/A" if the agent isn't paused
+													if ( $(e).attr("paused") === "1" ) {
+														if ( $(e).attr("pausedreason") === "" ) {
+															queueStatusTableRowCellParagraph.append("<br />Not Given");
+														} else {
+															queueStatusTableRowCellParagraph.append("<br />" + $(e).attr("pausedreason"));
+														}
+													} else {
+														// Formerly Read "N/A"
+														queueStatusTableRowCellParagraph.append("<br />&nbsp;");
+													}
+													
+													// Append Idle Time
+													var resultantidleTime =  idleTimes.filter(function(agentExt) {
+														return agentExt.userExt == $(e).attr("name").replace("PJSIP/", "");
+													});
+													if ( resultantidleTime.length > 0 ) {
+														queueStatusTableRowCellParagraph.append("<br />" + resultantidleTime[0].idleTime);
+													} else {
+														// Formerly Said "N/A"
+														queueStatusTableRowCellParagraph.append("<br />&nbsp;");
+													}
+													
+													// Append Paused Time
+													var resultantpausedTime =  pausedTimes.filter(function(agentExt) {
+														return agentExt.userExt == $(e).attr("name").replace("PJSIP/", "");
+													});
+													if ( resultantpausedTime.length > 0 ) {
+														queueStatusTableRowCellParagraph.append("<br />" + resultantpausedTime[0].pausedTime);
+													} else {
+														// Formerly Said "N/A"
+														queueStatusTableRowCellParagraph.append("<br />&nbsp;");
+													}
+
+													// Write the paragraph to the div		
+													queueStatusTableRowCell.append(queueStatusTableRowCellParagraph);
+													// Append the td to the table row containing the Agent cells
+													$("#" + $(e).attr("queue") + "MembersTableRow").append(queueStatusTableRowCell);
+													// Now that the td is written, color the background conditionally by status
+													var agentTableCell = document.getElementById(uniqueid);
+													if ( $(e).attr("incall") === "1" ) {
+														agentTableCell.style.backgroundColor = "#800080";
+														agentTableCell.style.color = "#ffffff";
+													} else {
+														if ( $(e).attr("status") === "1" ) {
+															if ( $(e).attr("paused") === "1" ) {
+																// Paused
+																agentTableCell.style.backgroundColor = "#ffff00";
+																agentTableCell.style.color = "#000000";
+															} else {
+																// Available
+																agentTableCell.style.backgroundColor = "#98fb98";
+																agentTableCell.style.color = "#000000";
+															}
+														} else if ( $(e).attr("status") === "2" ) {
+															// In Use
+															agentTableCell.style.backgroundColor = "#800080";
+															agentTableCell.style.color = "#ffffff";
+														} else if ( $(e).attr("status") === "3" ) {
+															// Busy
+															agentTableCell.style.backgroundColor = "#800080";
+															agentTableCell.style.color = "#ffffff";
+														} else if ( $(e).attr("status") === "4" ) {
+															// INVALID
+															agentTableCell.style.backgroundColor = "#ff0000";
+															agentTableCell.style.color = "#ffffff";
+														} else if ( $(e).attr("status") === "5" ) {
+															// In a call
+															agentTableCell.style.backgroundColor = "#800080";
+															agentTableCell.style.color = "#ffffff";
+														} else if ( $(e).attr("status") === "6" ) {
+															// Ringing
+															agentTableCell.style.backgroundColor = "#ff9933";
+															agentTableCell.style.color = "#000000";
+														} else if ( $(e).attr("status") === "7" ) {
+															// In Use/Ringing
+															agentTableCell.style.backgroundColor = "#800080";
+															agentTableCell.style.color = "#ffffff";
+														} else if ( $(e).attr("status") === "8" ) {
+															// On Hold
+															agentTableCell.style.backgroundColor = "#800080";
+															agentTableCell.style.color = "#ffffff";
+														} else {
+															// Unknown
+															agentTableCell.style.backgroundColor = "#ffccff";
+															agentTableCell.style.color = "#000000";
+														}
+													}		
+												}
+											}
+
+											// Case to get elements of individual calls; this is currently only used 
+											//  to generate the longest call time, which is first one in the list
+											if ( $(e).attr("event") === "QueueEntry" ) {
+												var currentCallLength = parseInt($(e).attr("wait"));
+												// Evaluate if this call is longer than previous ones in this queue, if so, update the placeholder
+												if ( longestCallInQueue < currentCallLength ) {
+													longestCallInQueue = currentCallLength;
+													// This math takes the number of seconds in the wait time 
+													//  for the first (oldest) call and turns it into mm:ss format.
+													// var longestWaitMinutes = parseInt(parseInt($(e).attr("wait")) / 60);
+													// var longestWaitSeconds = ("0" + parseInt($(e).attr("wait")) % 60).slice(-2);
+													var longestWaitMinutes = parseInt(currentCallLength / 60);
+													var longestWaitSeconds = ("0" + currentCallLength % 60).slice(-2);
+													$("#" + $(e).attr("queue") + "LongestWait").html(longestWaitMinutes + ":" + longestWaitSeconds);
+												}
+											}
+										}	
+									}
+								}
+								traverse(e, queueName);
+							});
+						};
+						// Call the traverse function in order of the desired queue display
+						traverse(s,"callcenter_english");
+						traverse(s,"callcenter_event");
+						//traverse(s,"callcenter_spanish");
+						//traverse(s,"callcenter_steward");
+					},
+					error: function ( s, status, xhr ){
+						// Debug case for when the Queue Status call fails
+						//var xml_serializer = new XMLSerializer();
+						//$('#DebugQueueStatusGrid').html(s.responseText);
+						console.log( "Queue Status Call Failed." );
+					}
+				});				
+
+			},
+			error: function (r, status, xhr ){
+				// Debug case for when the login call fails
+				//$('#DebugQueueStatusGrid').text("test.Post.Error \n readyState: " + r.readyState + "\nstatus: " + r.status + "\nstatusText: " + r.statusText );
+				console.log( "Login Call Failed." );
+			}
+		});
+	}
+	// This summons the data on a 10-second interval
+	function timedRefresh(timeoutPeriod) {
+		loadQueueStatusGridData();
+		setInterval("loadQueueStatusGridData();",timeoutPeriod);
+	}
+	timedRefresh(10000);
+</script>
